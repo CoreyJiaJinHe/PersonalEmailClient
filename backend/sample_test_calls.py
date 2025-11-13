@@ -1,7 +1,7 @@
 """Simple script to exercise the backend without curl.
 
 Run after starting the server:
-  set BACKEND_TOKEN=my-secret-token
+  set BACKEND_TOKEN=dev-token
   python backend\main.py
 In a second terminal (same venv):
   python backend\sample_test_calls.py

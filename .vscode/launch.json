@@ -8,14 +8,14 @@
             "program": "${workspaceFolder}/backend/main.py",
             "console": "integratedTerminal",
             "env": {
-                "BACKEND_TOKEN": "my-secret-token"
+                "BACKEND_TOKEN": "dev-token"
             },
             "cwd": "${workspaceFolder}",
             "args": [],
             "justMyCode": true
         },
         {
-            "name": "Electron Frontend",
+            "name": "Debug Electron Frontend",
             "type": "node",
             "request": "launch",
             "runtimeExecutable": "${workspaceFolder}/frontend/node_modules/.bin/electron.cmd",
@@ -24,25 +24,9 @@
             },
             "cwd": "${workspaceFolder}/frontend",
             "env": {
-                "BACKEND_TOKEN": "my-secret-token"
+                "BACKEND_TOKEN": "dev-token"
             },
             "runtimeArgs": ["."],
-            "console": "integratedTerminal",
-            "skipFiles": ["<node_internals>/**"]
-        },
-        {
-            "name": "Electron Frontend (Inspect)",
-            "type": "node",
-            "request": "launch",
-            "runtimeExecutable": "${workspaceFolder}/frontend/node_modules/.bin/electron.cmd",
-            "windows": {
-                "runtimeExecutable": "${workspaceFolder}/frontend/node_modules/.bin/electron.cmd"
-            },
-            "cwd": "${workspaceFolder}/frontend",
-            "env": {
-                "BACKEND_TOKEN": "my-secret-token"
-            },
-            "runtimeArgs": ["--remote-debugging-port=9223", "."],
             "console": "integratedTerminal",
             "skipFiles": ["<node_internals>/**"]
         }

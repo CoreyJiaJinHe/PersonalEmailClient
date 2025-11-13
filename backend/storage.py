@@ -162,32 +162,40 @@ def insert_message(
 
 
 def list_messages(search: Optional[str], page: int, page_size: int, include_hidden: bool = False):
+    """Return paginated messages.
+    Search behavior (simplified for reliability): substring match across subject OR from_addr.
+    Each space-separated token must be found in either subject or from_addr (AND semantics).
+    Body content is intentionally excluded (MVP scope).
+    """
     offset = (page - 1) * page_size
     conn = get_connection()
     cur = conn.cursor()
-    params: List = []
-    where_hidden = "" if include_hidden else "AND hidden=0"
-    if search:
-        # Build MATCH expression with basic AND logic
+    hidden_clause = "" if include_hidden else "AND hidden=0"
+    if search and search.strip():
         tokens = [t.strip() for t in search.split() if t.strip()]
-        match_expr = " AND ".join(tokens)
+        like_clauses = ["(subject LIKE ? OR from_addr LIKE ? )" for _ in tokens]
+        where_search = " AND ".join(like_clauses)
+        params: List[str] = []
+        for tok in tokens:
+            pattern = f"%{tok}%"
+            params.extend([pattern, pattern])
+        params.extend([page_size, offset])
         cur.execute(
             f"""
-            SELECT m.id, m.subject, m.from_addr, m.date_received, m.hidden
-            FROM message_search ms
-            JOIN messages m ON m.id = ms.rowid
-            WHERE ms MATCH ? {where_hidden}
-            ORDER BY datetime(m.date_received) DESC
+            SELECT id, subject, from_addr, date_received, hidden
+            FROM messages
+            WHERE 1=1 {hidden_clause} AND {where_search}
+            ORDER BY datetime(date_received) DESC
             LIMIT ? OFFSET ?
             """,
-            (match_expr, page_size, offset),
+            params,
         )
     else:
         cur.execute(
             f"""
             SELECT id, subject, from_addr, date_received, hidden
             FROM messages
-            WHERE 1=1 {where_hidden}
+            WHERE 1=1 {hidden_clause}
             ORDER BY datetime(date_received) DESC
             LIMIT ? OFFSET ?
             """,

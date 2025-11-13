@@ -19,17 +19,32 @@ const nextPageBtn = document.getElementById('nextPageBtn');
 
 async function loadMessages() {
   statusEl.textContent = 'Loading...';
+  console.debug('[loadMessages] page=', currentPage, 'search="' + currentSearch + '"', 'trash=', showingTrash);
   try {
-    const data = showingTrash
-      ? await window.emailApi.listTrash(currentPage, PAGE_SIZE)
-      : await window.emailApi.listMessages(currentPage, PAGE_SIZE, currentSearch);
-    const messages = data.messages || [];
+    let data;
+    if (showingTrash) {
+      data = await window.emailApi.listTrash(currentPage, PAGE_SIZE);
+    } else {
+      data = await window.emailApi.listMessages(currentPage, PAGE_SIZE, currentSearch);
+    }
+    if (!data || typeof data !== 'object') {
+      console.error('[loadMessages] Unexpected response shape:', data);
+      statusEl.textContent = 'Unexpected response';
+      return;
+    }
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    console.debug('[loadMessages] received', messages.length, 'messages');
+    if (currentSearch && !messages.length) {
+      console.debug('[loadMessages] No matches for search term:', currentSearch);
+    }
     renderList(messages);
-    statusEl.textContent = `Loaded ${messages.length} messages`;
+    statusEl.textContent = `Loaded ${messages.length} messages` + (currentSearch ? ` (search="${currentSearch}")` : '');
     updatePaginationControls(messages.length);
   } catch (e) {
-    statusEl.textContent = 'Error loading messages';
-    console.error(e);
+    let msg = 'Error loading messages';
+    if (e && e.message) msg += ': ' + e.message;
+    statusEl.textContent = msg;
+    console.error('[loadMessages] error:', e);
   }
 }
 
@@ -42,6 +57,10 @@ function updatePaginationControls(count) {
 
 function renderList(messages) {
   msgListEl.innerHTML = '';
+  if (!messages.length) {
+    msgListEl.innerHTML = '<div class="no-results">No results</div>';
+    return;
+  }
   messages.forEach(m => {
     const div = document.createElement('div');
     div.className = 'msg' + (m.hidden ? ' hidden' : '');
@@ -86,8 +105,13 @@ async function doDelete() {
   try {
     await window.emailApi.deleteMessage(currentMessageId);
     statusEl.textContent = 'Deleted';
+    // Clear detail view
+    currentMessageId = null;
+    detailSubjectEl.textContent = '';
+    detailMetaEl.textContent = '';
+    detailBodyEl.innerHTML = '';
+    detailToolbarEl.style.display = 'none';
     loadMessages();
-    showDetail(currentMessageId); // will show not found if hidden
   } catch (e) {
     statusEl.textContent = 'Delete failed';
     console.error(e);

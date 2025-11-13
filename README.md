@@ -30,7 +30,7 @@ python -m venv .venv
 call .venv\Scripts\activate
 
 pip install -r requirements.txt
-set BACKEND_TOKEN=my-secret-token
+set BACKEND_TOKEN=dev-token
 python backend\main.py
 ```
 
@@ -61,7 +61,7 @@ UI Usage:
 ```cmd
 REM Replace 8137 with actual port if different
 curl -X POST "http://127.0.0.1:8137/sync?host=imap.example.com&port=993&username=user@example.com&password=APP_PASS" ^
-  -H "X-Auth-Token: my-secret-token"
+  -H "X-Auth-Token: dev-token"
 ```
 
 ### List Messages
@@ -69,29 +69,29 @@ curl -X POST "http://127.0.0.1:8137/sync?host=imap.example.com&port=993&username
 Seed test messages:
 ```cmd
 REM Replace 8137 with actual port if different
-curl -X POST "http://127.0.0.1:8137/dummy/seed?count=25" -H "X-Auth-Token: my-secret-token"
+curl -X POST "http://127.0.0.1:8137/dummy/seed?count=25" -H "X-Auth-Token: dev-token"
 ```
 Insert one message:
 ```cmd
 REM Replace 8137 with actual port if different
-curl -X POST "http://127.0.0.1:8137/dummy/insert?subject=Hello&from_addr=a@b.com" -H "X-Auth-Token: my-secret-token"
+curl -X POST "http://127.0.0.1:8137/dummy/insert?subject=Hello&from_addr=a@b.com" -H "X-Auth-Token: dev-token"
 ```
 ```cmd
 REM Replace 8137 with actual port if different
-curl "http://127.0.0.1:8137/messages?page=1&page_size=50" -H "X-Auth-Token: my-secret-token"
+curl "http://127.0.0.1:8137/messages?page=1&page_size=50" -H "X-Auth-Token: dev-token"
 ```
 
 ### Search by Subject/Sender
 ```cmd
 REM Replace 8137 with actual port if different
-curl "http://127.0.0.1:8137/messages?search=invoice" -H "X-Auth-Token: my-secret-token"
+curl "http://127.0.0.1:8137/messages?search=invoice" -H "X-Auth-Token: dev-token"
 ```
 
 ### Delete / Restore
 ```cmd
 REM Replace 8137 with actual port if different
-curl -X POST "http://127.0.0.1:8137/messages/10/delete" -H "X-Auth-Token: my-secret-token"
-curl -X POST "http://127.0.0.1:8137/messages/10/restore" -H "X-Auth-Token: my-secret-token"
+curl -X POST "http://127.0.0.1:8137/messages/10/delete" -H "X-Auth-Token: dev-token"
+curl -X POST "http://127.0.0.1:8137/messages/10/restore" -H "X-Auth-Token: dev-token"
 ```
 
 ## Notes
