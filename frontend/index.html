@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Personal Email Client</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; }
+    #sidebar { width: 320px; border-right: 1px solid #ccc; padding: 10px; box-sizing: border-box; overflow-y: auto; }
+    #content { flex: 1; padding: 10px; overflow-y: auto; }
+    .msg { padding: 6px 4px; border-bottom: 1px solid #eee; cursor: pointer; }
+    .msg:hover { background: #f5f5f5; }
+    .hidden { color: #999; }
+    #actions { margin-bottom: 10px; }
+    input, button { margin: 2px; }
+    #trashToggle { margin-left: 8px; }
+    #detailToolbar { position: sticky; top: 0; background: #ffffff; padding: 6px 8px; border-bottom: 1px solid #ddd; display: flex; gap: 8px; justify-content: flex-end; z-index: 10; }
+    #detailSubject { font-weight: bold; font-size: 16px; margin: 8px 0 4px; }
+    #detailMeta { font-size: 12px; color: #555; margin-bottom: 8px; }
+    #detailBody { border: 1px solid #ddd; padding: 8px; background: #fafafa; }
+    .status { font-size: 12px; color: #007700; }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <div id="actions">
+      <input id="imapHost" placeholder="IMAP host" />
+      <input id="imapUser" placeholder="Username" />
+      <input id="imapPass" placeholder="Password" type="password" />
+      <button id="syncBtn">Sync</button><br/>
+      <input id="searchBox" placeholder="Search subject or sender" />
+      <button id="searchBtn">Search</button>
+      <button id="clearSearchBtn">Clear</button>
+      <div style="margin-top:6px;">
+        <button id="prevPageBtn">Prev</button>
+        <span id="pageIndicator">Page 1</span>
+        <button id="nextPageBtn">Next</button>
+      </div>
+      <label><input type="checkbox" id="trashToggle"/> Show Trash</label>
+      <div class="status" id="status"></div>
+    </div>
+    <div id="messageList"></div>
+  </div>
+  <div id="content">
+    <div id="detail">
+      <div id="detailToolbar" style="display:none;">
+        <button id="deleteBtn">Delete</button>
+        <button id="restoreBtn">Restore</button>
+      </div>
+      <div id="detailSubject"></div>
+      <div id="detailMeta"></div>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

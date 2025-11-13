@@ -1,0 +1,13 @@
+{
+  "name": "personal-email-client-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "electron": "28.2.0"
+  }
+}
