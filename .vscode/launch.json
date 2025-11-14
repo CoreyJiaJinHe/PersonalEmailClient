@@ -15,7 +15,7 @@
             "justMyCode": true
         },
         {
-            "name": "Debug Electron Frontend",
+            "name": "Debug Electron Frontend and Backend",
             "type": "node",
             "request": "launch",
             "runtimeExecutable": "${workspaceFolder}/frontend/node_modules/.bin/electron.cmd",
@@ -29,13 +29,6 @@
             "runtimeArgs": ["."],
             "console": "integratedTerminal",
             "skipFiles": ["<node_internals>/**"]
-        }
-    ],
-    "compounds": [
-        {
-            "name": "Backend + Electron",
-            "configurations": ["Debug Email Backend", "Electron Frontend"],
-            "stopAll": true
         }
     ]
 }

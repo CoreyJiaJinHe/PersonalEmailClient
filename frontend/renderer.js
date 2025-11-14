@@ -61,10 +61,24 @@ function renderList(messages) {
     msgListEl.innerHTML = '<div class="no-results">No results</div>';
     return;
   }
+  const tokens = (currentSearch || '').split(/\s+/).filter(Boolean);
   messages.forEach(m => {
     const div = document.createElement('div');
     div.className = 'msg' + (m.hidden ? ' hidden' : '');
-    div.textContent = `${m.subject || '(No Subject)'} | ${m.from_addr} | ${formatDate(m.date_received)}`;
+    const subjectHtml = highlight(m.subject || '(No Subject)', tokens);
+    const fromAddrHtml = highlight(m.from_addr || '', tokens);
+    const bodySnippetHtml = highlight(makeSnippet(m.body_plain || '', tokens), tokens);
+    const date = formatDate(m.date_received);
+    div.innerHTML = `
+      <div class="row">
+        <div class="left">
+          <div class="subject">${subjectHtml}</div>
+          <div class="from">${fromAddrHtml}</div>
+          <div class="snippet">${bodySnippetHtml}</div>
+        </div>
+        <div class="right">${escapeHtml(date)}</div>
+      </div>
+    `;
     div.onclick = () => showDetail(m.id);
     msgListEl.appendChild(div);
   });
@@ -191,6 +205,112 @@ nextPageBtn.onclick = () => {
 
 deleteBtn.onclick = doDelete;
 restoreBtn.onclick = doRestore;
+
+// Settings: theme + hide on blur + menu toggle
+const settingsBtnEl = document.getElementById('settingsBtn');
+const settingsMenuEl = document.getElementById('settingsMenu');
+const settingsDarkEl = document.getElementById('settingsDark');
+
+function applyTheme(theme) {
+  if (theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+}
+// Load and apply saved preferences
+let savedTheme = 'light';
+try {
+  savedTheme = localStorage.getItem('theme') || 'light';
+} catch {}
+applyTheme(savedTheme);
+if (settingsDarkEl) settingsDarkEl.checked = savedTheme === 'dark';
+
+if (settingsBtnEl && settingsMenuEl) {
+  settingsBtnEl.addEventListener('click', () => {
+    settingsMenuEl.style.display = settingsMenuEl.style.display === 'none' || !settingsMenuEl.style.display ? 'block' : 'none';
+  });
+  // Hide menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (e.target === settingsBtnEl || settingsMenuEl.contains(e.target)) return;
+    settingsMenuEl.style.display = 'none';
+  });
+}
+if (settingsDarkEl) {
+  settingsDarkEl.addEventListener('change', (e) => {
+    const theme = e.target.checked ? 'dark' : 'light';
+    applyTheme(theme);
+    try { localStorage.setItem('theme', theme); } catch {}
+  });
+}
+// No hide-on-blur setting anymore
+
+// Sidebar splitter drag-to-resize + persistence
+const sidebarEl = document.getElementById('sidebar');
+const splitterEl = document.getElementById('splitter');
+try {
+  const w = parseInt(localStorage.getItem('sidebarWidthPx') || '0', 10);
+  if (w && sidebarEl) sidebarEl.style.width = w + 'px';
+} catch {}
+if (splitterEl && sidebarEl) {
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+  const minW = 220;
+  function onMove(e) {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const maxW = Math.floor(window.innerWidth * 0.6);
+    let newW = Math.max(minW, Math.min(startW + dx, maxW));
+    sidebarEl.style.width = newW + 'px';
+  }
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    try {
+      const w = parseInt(getComputedStyle(sidebarEl).width, 10);
+      localStorage.setItem('sidebarWidthPx', String(w));
+    } catch {}
+  }
+  splitterEl.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startW = parseInt(getComputedStyle(sidebarEl).width, 10);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// Highlight helpers
+function highlight(text, tokens) {
+  if (!text) return '';
+  if (!tokens || tokens.length === 0) return escapeHtml(text);
+  let out = escapeHtml(text);
+  for (const t of tokens) {
+    const safe = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(${safe})`, 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  }
+  return out;
+}
+function makeSnippet(bodyPlain, tokens, maxLen = 140) {
+  if (!bodyPlain) return '';
+  const text = (bodyPlain || '').replace(/\s+/g, ' ').trim();
+  if (!tokens || tokens.length === 0) return escapeHtml(text.slice(0, maxLen));
+  let idx = -1;
+  for (const t of tokens) {
+    const i = text.toLowerCase().indexOf(t.toLowerCase());
+    if (i !== -1 && (idx === -1 || i < idx)) idx = i;
+  }
+  let start = 0;
+  if (idx > 20) start = idx - 20;
+  const snippet = text.slice(start, start + maxLen);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = start + maxLen < text.length ? '…' : '';
+  return prefix + snippet + suffix;
+}
 
 // Initial load
 loadMessages();

@@ -163,9 +163,8 @@ def insert_message(
 
 def list_messages(search: Optional[str], page: int, page_size: int, include_hidden: bool = False):
     """Return paginated messages.
-    Search behavior (simplified for reliability): substring match across subject OR from_addr.
-    Each space-separated token must be found in either subject or from_addr (AND semantics).
-    Body content is intentionally excluded (MVP scope).
+    Search behavior: substring match across subject OR from_addr OR body_plain.
+    Each space-separated token must be found in at least one of these fields (AND semantics across tokens).
     """
     offset = (page - 1) * page_size
     conn = get_connection()
@@ -173,16 +172,16 @@ def list_messages(search: Optional[str], page: int, page_size: int, include_hidd
     hidden_clause = "" if include_hidden else "AND hidden=0"
     if search and search.strip():
         tokens = [t.strip() for t in search.split() if t.strip()]
-        like_clauses = ["(subject LIKE ? OR from_addr LIKE ? )" for _ in tokens]
+        like_clauses = ["(subject LIKE ? OR from_addr LIKE ? OR body_plain LIKE ?)" for _ in tokens]
         where_search = " AND ".join(like_clauses)
         params: List[str] = []
         for tok in tokens:
             pattern = f"%{tok}%"
-            params.extend([pattern, pattern])
+            params.extend([pattern, pattern, pattern])
         params.extend([page_size, offset])
         cur.execute(
             f"""
-            SELECT id, subject, from_addr, date_received, hidden
+            SELECT id, subject, from_addr, date_received, hidden, body_plain
             FROM messages
             WHERE 1=1 {hidden_clause} AND {where_search}
             ORDER BY datetime(date_received) DESC
@@ -193,7 +192,7 @@ def list_messages(search: Optional[str], page: int, page_size: int, include_hidd
     else:
         cur.execute(
             f"""
-            SELECT id, subject, from_addr, date_received, hidden
+            SELECT id, subject, from_addr, date_received, hidden, body_plain
             FROM messages
             WHERE 1=1 {hidden_clause}
             ORDER BY datetime(date_received) DESC
@@ -256,7 +255,7 @@ def list_trash(page: int, page_size: int):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT id, subject, from_addr, date_received, hidden
+        SELECT id, subject, from_addr, date_received, hidden, body_plain
         FROM messages
         WHERE hidden=1
         ORDER BY datetime(date_received) DESC

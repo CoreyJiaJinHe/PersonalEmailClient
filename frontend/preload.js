@@ -34,3 +34,5 @@ contextBridge.exposeInMainWorld('emailApi', {
   restoreMessage: (id) => apiPost(`/messages/${id}/restore`),
   listTrash: (page = 1, page_size = 50) => apiGet('/trash', { page, page_size }),
 });
+
+// No app-level IPC exposed currently

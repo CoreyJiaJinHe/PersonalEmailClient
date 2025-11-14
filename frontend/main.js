@@ -55,6 +55,12 @@ function createWindow() {
     }
   });
   win.loadFile(path.join(__dirname, 'index.html'));
+  // Minimize on blur
+  win.on('blur', () => {
+    if (!win.isDestroyed()) {
+      try { win.minimize(); } catch {}
+    }
+  });
 }
 
 app.whenReady().then(() => {
