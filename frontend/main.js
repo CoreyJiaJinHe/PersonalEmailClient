@@ -1,10 +1,39 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 let backendProcess;
+
+// Load .env from project root to provide Gmail OAuth vars and others
+function loadDotEnv() {
+  try {
+    const envPath = path.join(__dirname, '..', '.env');
+    if (!fs.existsSync(envPath)) return;
+    const content = fs.readFileSync(envPath, 'utf8');
+    content.split(/\r?\n/).forEach(line => {
+      if (!line || /^\s*#/.test(line)) return;
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (!m) return;
+      let val = m[2];
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      process.env[m[1]] = val;
+    });
+  } catch (e) {
+    console.warn('Failed to load .env:', e);
+  }
+}
+
+loadDotEnv();
+
 const BACKEND_TOKEN = process.env.BACKEND_TOKEN || 'dev-token';
 const BACKEND_PREFERRED_PORT = process.env.BACKEND_PORT || '8137';
+// Default redirect URI if not provided; must match Google Console config
+if (!process.env.GMAIL_REDIRECT_URI) {
+  process.env.GMAIL_REDIRECT_URI = `http://127.0.0.1:${BACKEND_PREFERRED_PORT}/gmail/callback`;
+}
 let resolvedPort = BACKEND_PREFERRED_PORT;
 
 function startBackend() {
@@ -55,13 +84,20 @@ function createWindow() {
     }
   });
   win.loadFile(path.join(__dirname, 'index.html'));
-  // Minimize on blur
-  win.on('blur', () => {
-    if (!win.isDestroyed()) {
-      try { win.minimize(); } catch {}
-    }
-  });
+  // Removed minimize-on-blur to allow normal alt-tab focus behavior.
 }
+
+// IPC: open external URLs in default browser (used for Gmail OAuth)
+ipcMain.handle('open-external', async (_evt, url) => {
+  if (!url) return false;
+  try {
+    await shell.openExternal(url);
+    return true;
+  } catch (e) {
+    console.error('Failed to open external URL:', e);
+    return false;
+  }
+});
 
 app.whenReady().then(() => {
   startBackend()

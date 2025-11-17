@@ -1,4 +1,4 @@
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const BACKEND_TOKEN = process.env.BACKEND_TOKEN || 'dev-token';
 function resolvePort() {
@@ -33,6 +33,25 @@ contextBridge.exposeInMainWorld('emailApi', {
   deleteMessage: (id) => apiPost(`/messages/${id}/delete`),
   restoreMessage: (id) => apiPost(`/messages/${id}/restore`),
   listTrash: (page = 1, page_size = 50) => apiGet('/trash', { page, page_size }),
+  listAccounts: () => apiGet('/accounts'),
+  createAccount: (email_address, imap_host, imap_port, username, password) => fetch(`${BASE}/accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': BACKEND_TOKEN },
+    body: JSON.stringify({ email_address, imap_host, imap_port, username, password })
+  }).then(r => { if(!r.ok) throw new Error('Create account failed'); return r.json(); }),
+  syncAccount: (account_id) => apiPost(`/accounts/${account_id}/sync`),
+  rotatePassword: (account_id, password) => fetch(`${BASE}/accounts/${account_id}/password`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': BACKEND_TOKEN },
+    body: JSON.stringify({ password })
+  }).then(r => { if(!r.ok) throw new Error('Rotate password failed'); return r.json(); }),
+  gmailAuthUrl: () => apiGet('/gmail/auth_url'),
+  gmailSync: (account_id) => apiPost('/gmail/sync', { account_id }),
+  deleteAccount: (account_id) => fetch(`${BASE}/accounts/${account_id}`, {
+    method: 'DELETE',
+    headers: { 'X-Auth-Token': BACKEND_TOKEN }
+  }).then(r => { if(!r.ok) throw new Error('Delete failed'); return r.json(); }),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
 });
 
 // No app-level IPC exposed currently

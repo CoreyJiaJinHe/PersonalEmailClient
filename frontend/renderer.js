@@ -180,7 +180,9 @@ function clearSearch() {
 
 // Event bindings
 
-document.getElementById('syncBtn').onclick = doSync;
+// Manual IMAP sync disabled (UI hidden). Guard in case element exists.
+const legacySyncBtn = document.getElementById('syncBtn');
+if (legacySyncBtn) legacySyncBtn.onclick = () => statusEl.textContent = 'Manual IMAP sync disabled (use Gmail OAuth).';
 
 document.getElementById('searchBtn').onclick = doSearch;
 
@@ -225,6 +227,8 @@ try {
 } catch {}
 applyTheme(savedTheme);
 if (settingsDarkEl) settingsDarkEl.checked = savedTheme === 'dark';
+// Clean old setting key if present
+try { localStorage.removeItem('hideOnBlur'); } catch {}
 
 if (settingsBtnEl && settingsMenuEl) {
   settingsBtnEl.addEventListener('click', () => {
@@ -314,3 +318,136 @@ function makeSnippet(bodyPlain, tokens, maxLen = 140) {
 
 // Initial load
 loadMessages();
+
+// Accounts UI logic
+const accountsListEl = document.getElementById('accountsList');
+const addGmailBtn = document.getElementById('addGmailBtn');
+
+async function loadAccounts() {
+  if (!accountsListEl) return;
+  try {
+    const data = await window.emailApi.listAccounts();
+    const accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    renderAccounts(accounts);
+  } catch (e) {
+    console.error('[loadAccounts] failed', e);
+  }
+}
+
+function renderAccounts(accounts) {
+  accountsListEl.innerHTML = '';
+  if (!accounts.length) {
+    accountsListEl.innerHTML = '<li style="font-style:italic; color:var(--subtle);">No accounts</li>';
+    return;
+  }
+  accounts.forEach(ac => {
+    const li = document.createElement('li');
+    const tags = [];
+    if (ac.has_gmail) tags.push('Gmail');
+    if (ac.has_password) tags.push('IMAP');
+    const tagStr = tags.length ? ' [' + tags.join(', ') + ']' : '';
+    li.innerHTML = `<span title="${ac.username || ''}">${escapeHtml(ac.email_address)}${escapeHtml(tagStr)}</span>`;
+    const btnWrap = document.createElement('div');
+    const syncBtn = document.createElement('button');
+    syncBtn.textContent = 'Sync';
+    syncBtn.onclick = async () => {
+      statusEl.textContent = 'Syncing account...';
+      syncBtn.disabled = true;
+      try {
+        const r = await window.emailApi.syncAccount(ac.id);
+        if (r.mode === 'gmail') {
+          statusEl.textContent = `Gmail: fetched ${r.fetched} new, skipped ${r.skipped || 0}`;
+        } else {
+          statusEl.textContent = `IMAP: fetched ${r.fetched} new messages`;
+        }
+        loadMessages();
+      } catch (e) {
+        statusEl.textContent = 'Account sync failed';
+        console.error(e);
+      } finally {
+        syncBtn.disabled = false;
+      }
+    };
+    btnWrap.appendChild(syncBtn);
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = 'Remove';
+    removeBtn.onclick = async () => {
+      if (!confirm('Remove account ' + ac.email_address + ' and all its messages?')) return;
+      removeBtn.disabled = true;
+      statusEl.textContent = 'Removing account...';
+      try {
+        await window.emailApi.deleteAccount(ac.id);
+        statusEl.textContent = 'Account removed';
+        loadAccounts();
+        loadMessages();
+      } catch (e) {
+        statusEl.textContent = 'Remove failed';
+        console.error(e);
+      } finally {
+        removeBtn.disabled = false;
+      }
+    };
+    btnWrap.appendChild(removeBtn);
+    if (ac.has_password) {
+      const rotBtn = document.createElement('button');
+      rotBtn.textContent = 'Rotate';
+      rotBtn.onclick = async () => {
+        const newPw = prompt('Enter new password for ' + ac.email_address);
+        if (!newPw) return;
+        rotBtn.disabled = true;
+        statusEl.textContent = 'Updating password...';
+        try {
+          await window.emailApi.rotatePassword(ac.id, newPw);
+          statusEl.textContent = 'Password updated';
+        } catch (e) {
+          statusEl.textContent = 'Rotate failed';
+          console.error(e);
+        } finally {
+          rotBtn.disabled = false;
+        }
+      };
+      btnWrap.appendChild(rotBtn);
+    }
+    li.appendChild(btnWrap);
+    accountsListEl.appendChild(li);
+  });
+}
+
+async function startGmailAddFlow() {
+  if (!addGmailBtn) return;
+  addGmailBtn.disabled = true;
+  statusEl.textContent = 'Opening Gmail auth...';
+  try {
+    const { url } = await window.emailApi.gmailAuthUrl();
+    if (!url) throw new Error('No URL');
+    // Open in external browser via main-process bridge
+    try { await window.emailApi.openExternal(url); } catch {}
+    statusEl.textContent = 'Complete OAuth in browser...';
+    // Poll for new gmail account appearing (up to ~30s)
+    const start = Date.now();
+    const initial = await window.emailApi.listAccounts();
+    const initialIds = new Set((initial.accounts || []).map(a => a.id));
+    const poll = async () => {
+      const now = Date.now();
+      if (now - start > 30000) { statusEl.textContent = 'Timed out waiting for Gmail account'; return; }
+      const cur = await window.emailApi.listAccounts();
+      const found = (cur.accounts || []).find(a => !initialIds.has(a.id) && a.has_gmail);
+      if (found) {
+        statusEl.textContent = 'Gmail account added: ' + found.email_address;
+        loadAccounts();
+        return;
+      }
+      setTimeout(poll, 3000);
+    };
+    setTimeout(poll, 3000);
+  } catch (e) {
+    statusEl.textContent = 'Gmail auth failed';
+    console.error(e);
+  } finally {
+    addGmailBtn.disabled = false;
+  }
+}
+
+if (addGmailBtn) addGmailBtn.addEventListener('click', startGmailAddFlow);
+loadAccounts();

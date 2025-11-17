@@ -1,29 +1,45 @@
-# Personal Email Client (MVP)
+# Personal Email Client
 
-Minimal desktop backend (Python FastAPI) for a personal email viewer. Fetches messages manually from a single IMAP inbox, stores locally in SQLite, supports keyword search (subject & sender only), local delete (hide) and restore, plus scaffold for future remote image opt-in.
+Local desktop email viewer (FastAPI backend + Electron frontend) with multi-account support, Gmail OAuth, message deduplication, soft delete/restore, search, and local SQLite storage. Manual IMAP password login is currently disabled while focusing on secure OAuth flows.
 
 ## Features
-- Manual fetch: `/sync` endpoint pulls up to 50 new messages.
-- Storage: Subject, sender, recipients, received date, plain text body, raw HTML, sanitized HTML.
-- Sanitization: Removes scripts, styles; blocks images (stores sources separately for future opt-in).
-- Search: Keyword match over subject and sender using a SQLite virtual table.
-- Local delete & restore: Soft hide with audit log; trash listing.
-- Token auth: Header `X-Auth-Token` must match environment `BACKEND_TOKEN`.
+- Gmail OAuth multi-account: Add multiple Gmail inboxes; each stored as its own account.
+- Message deduplication: Gmail messages keyed by `external_id` (Gmail message ID) ensuring no duplicates.
+- Per-account sync: `/accounts/{id}/sync` chooses Gmail API vs IMAP automatically (IMAP path currently disabled in UI).
+- Storage: Subject, sender, recipients, received date, plain/plain+HTML bodies (sanitized), image sources harvested.
+- Sanitization: Strips scripts/styles; blocks remote images (sources retained for future opt-in).
+- Search: Substring AND across tokens over subject/from/body_plain.
+- Soft delete & restore: Hidden messages go to Trash; restore individually.
+- Account removal: Delete an account and all its messages and tokens.
+- Token auth: Header `X-Auth-Token` must match `BACKEND_TOKEN`.
 
-## Endpoints
+## Endpoints (Core)
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /health | Server status |
-| POST | /sync | Fetch new messages (query params: host, port, username, password, account_id=1) |
-| GET | /messages | Paginated messages (`page`, `page_size`, optional `search`) |
-| GET | /messages/{id} | Message detail (hidden messages not returned) |
-| POST | /messages/{id}/delete | Hide a message (soft delete) |
-| POST | /messages/{id}/restore | Restore a hidden message |
+| GET | /messages | Paginated messages (`page`, `page_size`, `search`) |
+| GET | /messages/{id} | Message detail (hidden excluded) |
+| POST | /messages/{id}/delete | Soft delete (hide) |
+| POST | /messages/{id}/restore | Restore hidden |
 | GET | /trash | Paginated hidden messages |
-| GET | /account/settings | Returns remote image flag (always false) |
-| PUT | /account/settings | Scaffold to update remote image flag |
+| POST | /dummy/seed | Seed test messages |
+| POST | /dummy/insert | Insert one test message |
 
-## Quick Start
+## Endpoints (Accounts & Gmail)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /accounts | List accounts (flags: `has_gmail`, `has_password`) |
+| POST | /accounts | Create IMAP account (legacy; UI disabled) |
+| PUT | /accounts/{id}/password | Rotate stored IMAP password (legacy) |
+| DELETE | /accounts/{id} | Remove account + all related data |
+| POST | /accounts/{id}/sync | Sync (Gmail API if tokens exist; IMAP otherwise) |
+| GET | /gmail/auth_url | Generate Gmail OAuth consent URL |
+| GET | /gmail/callback | OAuth redirect target; stores tokens & creates account |
+| POST | /gmail/sync | Explicit Gmail sync (prefer /accounts/{id}/sync) |
+
+Legacy: `POST /sync` exists for direct IMAP credentials but is not exposed in the UI.
+
+## Quick Start (Backend + Electron)
 ```cmd
 REM (Optional) Create virtual environment
 python -m venv .venv
@@ -47,17 +63,41 @@ This will launch Electron, start the Python backend automatically (using the sam
 ### Dynamic Port Selection
 The backend tries to bind to the port specified by `BACKEND_PORT` (default 8137). If that port is occupied, it scans the next 20 ports and picks the first free one, printing `Listening on 127.0.0.1:XXXX`. Electron parses this line and routes API calls to the chosen port automatically. If you are calling the API manually (e.g. with `curl`), verify which port was selected in the Electron console output.
 
-UI Usage:
-- Enter IMAP host, username, and password (app password recommended).
-- Click Sync to fetch up to 50 new messages.
-- Messages list shows subject | sender | date.
-- Search box filters by subject or sender (simple space-separated AND logic).
-- Pagination controls (Prev/Next) navigate pages of 50 messages; Next disabled when the last page is reached.
-- Delete hides a message; use Show Trash checkbox to view hidden messages and Restore.
-- HTML images are blocked and replaced with placeholders.
+UI Notes:
+- Manual IMAP login form hidden (temporary). Use "Add Gmail Account" to onboard.
+- Accounts panel: each account shows tags `[Gmail]` / `[IMAP]`, plus Sync/Rotate/Remove actions (Rotate only for IMAP accounts).
+- Delete/Restore toolbar sticks to top; Trash toggle reveals hidden messages.
+- Search supports multiple tokens (all must match somewhere in subject/from/body).
 
 
-### Fetch Mail Example
+### Gmail OAuth Setup
+
+1. Create a Google Cloud project → Enable "Gmail API".
+2. Configure OAuth consent screen (External for regular Gmail users). Add scope: `https://www.googleapis.com/auth/gmail.readonly`.
+3. Create OAuth Client ID (Web Application). Authorized redirect URI must EXACTLY match your backend: `http://127.0.0.1:8137/gmail/callback` (adjust port if needed).
+4. Copy Client ID and Client Secret.
+5. Generate a stable Fernet key for encryption (Windows cmd):
+  ```cmd
+  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  ```
+6. Create `.env` in project root:
+  ```env
+  BACKEND_TOKEN=dev-token
+  BACKEND_PORT=8137
+  GMAIL_CLIENT_ID=your_client_id.apps.googleusercontent.com
+  GMAIL_CLIENT_SECRET=your_client_secret
+  GMAIL_REDIRECT_URI=http://127.0.0.1:8137/gmail/callback
+  EMAIL_ENCRYPTION_KEY=base64_fernet_key_here
+  ```
+7. Start Electron (`npm start` inside `frontend/`). Backend reads `.env` and launches FastAPI.
+8. Click "Add Gmail Account" → consent → account appears → click Sync.
+
+If port 8137 is busy, change `BACKEND_PORT` AND update both the redirect URI here and in Google Cloud.
+
+### Manual IMAP (Disabled)
+Legacy fields/flow remain in the API (`/sync`, `/accounts` creation) but the UI hides them while focusing on secure OAuth. Re-enable later by unhiding the section in `frontend/index.html` and restoring the handler in `renderer.js`.
+
+### Fetch Mail Example (Legacy IMAP)
 ```cmd
 REM Replace 8137 with actual port if different
 curl -X POST "http://127.0.0.1:8137/sync?host=imap.example.com&port=993&username=user@example.com&password=APP_PASS" ^
@@ -65,7 +105,7 @@ curl -X POST "http://127.0.0.1:8137/sync?host=imap.example.com&port=993&username
 ```
 
 ### List Messages
-### Dummy Data (No IMAP Needed)
+### Dummy Data (Testing Without IMAP/OAuth)
 Seed test messages:
 ```cmd
 REM Replace 8137 with actual port if different
@@ -95,8 +135,11 @@ curl -X POST "http://127.0.0.1:8137/messages/10/restore" -H "X-Auth-Token: dev-t
 ```
 
 ## Notes
-- Date parsing is simplified; falls back to current UTC if header parse fails.
-- Future enhancements: body search, multi-account, remote image toggle, WebSocket events.
+- Gmail message date currently uses fetch timestamp (header parse improvement pending).
+- Dedup uses `external_id` unique index (Gmail message ID); skipped count approximated.
+- Remote images blocked by default; stored in `image_sources` for future opt-in.
+- Manual IMAP disabled; rotate password & direct `/sync` remain for potential reactivation.
+- Account removal deletes messages, image sources, audit logs, and OAuth tokens.
 
 ## License
 User-specific project (no license specified).

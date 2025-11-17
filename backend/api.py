@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Body
 from fastapi.responses import JSONResponse
 from typing import Optional
 from datetime import datetime
@@ -14,8 +14,15 @@ from .storage import (
     ensure_account,
     insert_message,
     get_highest_uid,
+    get_oauth_tokens,
+    add_account,
+    get_accounts,
+    get_account_credentials,
+    delete_account,
 )
+from .gmail_oauth import generate_auth_url, exchange_code, gmail_sync
 from .fetch import sync_imap, sanitize_html
+from .crypto import encrypt_secret, decrypt_secret
 from datetime import datetime
 import random
 
@@ -41,16 +48,132 @@ def health():
 
 @app.post("/sync")
 def sync(
-    account_id: int = Query(1, description="Account identifier (fixed to 1 for MVP)"),
-    host: str = Query(...),
+    account_id: int = Query(None, description="Existing account id if using stored credentials"),
+    host: Optional[str] = Query(None),
     port: int = Query(993),
-    username: str = Query(...),
-    password: str = Query(...),
+    username: Optional[str] = Query(None),
+    password: Optional[str] = Query(None),
     x_auth_token: str = Header(...),
 ):
     _require_token(x_auth_token)
+    # If account_id provided, pull stored encrypted password
+    if account_id is not None:
+        acct = get_account_credentials(account_id)
+        if not acct:
+            raise HTTPException(status_code=404, detail="Account not found")
+        if not acct.get("encrypted_password"):
+            raise HTTPException(status_code=400, detail="Account has no stored password")
+        try:
+            dec_pw = decrypt_secret(acct["encrypted_password"])
+        except ValueError:
+            raise HTTPException(status_code=500, detail="Failed to decrypt stored password")
+        new_count = sync_imap(account_id, acct["imap_host"], acct["imap_port"], acct["username"], dec_pw)
+        return {"fetched": new_count, "account_id": account_id}
+    # Otherwise require direct credentials
+    if not (host and username and password):
+        raise HTTPException(status_code=400, detail="host, username, password required if account_id not provided")
+    # Use ensure_account for a one-off default (or create ephemeral)
+    account_id = ensure_account(email_address=username, imap_host=host, imap_port=port, username=username)
     new_count = sync_imap(account_id, host, port, username, password)
-    return {"fetched": new_count}
+    return {"fetched": new_count, "account_id": account_id}
+
+
+@app.get("/accounts")
+def list_accounts(x_auth_token: str = Header(...)):
+    _require_token(x_auth_token)
+    return {"accounts": get_accounts()}
+
+
+@app.post("/accounts")
+def create_account(
+    email_address: str = Body(...),
+    imap_host: str = Body(...),
+    imap_port: int = Body(993),
+    username: str = Body(...),
+    password: str = Body(...),
+    x_auth_token: str = Header(...),
+):
+    _require_token(x_auth_token)
+    enc = encrypt_secret(password)
+    account_id = add_account(email_address, imap_host, imap_port, username, enc)
+    return {"status": "ok", "account_id": account_id}
+
+
+# Gmail OAuth flow
+@app.get("/gmail/auth_url")
+def gmail_auth_url(x_auth_token: str = Header(...)):
+    _require_token(x_auth_token)
+    return {"url": generate_auth_url()}
+
+
+@app.get("/gmail/callback")
+def gmail_callback(code: str, state: str = Query("state123")):
+    # Google redirects to this endpoint after user consents.
+    result = exchange_code(code, state)
+    return result
+
+
+@app.post("/gmail/sync")
+def gmail_sync_endpoint(account_id: int = Query(...), x_auth_token: str = Header(...)):
+    _require_token(x_auth_token)
+    # Require explicit account_id created via OAuth callback
+    acct = get_account_credentials(account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="Account not found")
+    result = gmail_sync(account_id)
+    return {"account_id": account_id, **result}
+
+
+@app.post("/accounts/{account_id}/sync")
+def account_sync(account_id: int, x_auth_token: str = Header(...)):
+    _require_token(x_auth_token)
+    acct = get_account_credentials(account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="Account not found")
+    # Decide provider: if oauth_tokens exists for gmail provider, use Gmail API; else IMAP.
+    oauth = get_oauth_tokens(account_id, "gmail")
+    if oauth:
+        result = gmail_sync(account_id)
+        return {"mode": "gmail", **result, "account_id": account_id}
+    # IMAP path requires encrypted_password
+    if not acct.get("encrypted_password"):
+        raise HTTPException(status_code=400, detail="No credentials stored for IMAP sync")
+    try:
+        dec_pw = decrypt_secret(acct["encrypted_password"])
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Failed to decrypt password")
+    new_count = sync_imap(account_id, acct["imap_host"], acct["imap_port"], acct["username"], dec_pw)
+    return {"mode": "imap", "fetched": new_count, "account_id": account_id}
+
+
+@app.put("/accounts/{account_id}/password")
+def rotate_password(account_id: int, password: str = Body(...), x_auth_token: str = Header(...)):
+    _require_token(x_auth_token)
+    acct = get_account_credentials(account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="Account not found")
+    enc = encrypt_secret(password)
+    conn = None
+    try:
+        from .storage import get_connection
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE accounts SET encrypted_password=? WHERE id=?", (enc, account_id))
+        conn.commit()
+    finally:
+        if conn:
+            conn.close()
+    return {"status": "updated", "account_id": account_id}
+
+
+@app.delete("/accounts/{account_id}")
+def remove_account(account_id: int, x_auth_token: str = Header(...)):
+    _require_token(x_auth_token)
+    acct = get_account_credentials(account_id)
+    if not acct:
+        raise HTTPException(status_code=404, detail="Account not found")
+    stats = delete_account(account_id)
+    return {"status": "deleted", "account_id": account_id, **stats}
 
 
 @app.get("/messages")
